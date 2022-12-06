@@ -8,16 +8,38 @@ import (
 	"strings"
 )
 
+var noGetaway, binario bool = false, false
+
 func main() {
 	var IP, mask uint32 = 0, 32
 	var err error
+	var ind string
 
-	if len(os.Args) != 2 {
+	if len(os.Args) <= 1 {
 		fmt.Println("nessun argomento da linea di comando")
 		return
 	}
 
-	addres := strings.Split(os.Args[1], "/")
+	for _, arg := range os.Args[1:] {
+		if arg == "-g" {
+			noGetaway = true
+			continue
+
+		} else if arg == "-b" {
+			binario = true
+			continue
+
+		} else if arg == "--help" {
+			println("Fornisce alcune inforazioni riguardo l'indirizzo in notazione puntata (x.y.z.q/m)\nformito da linea di comando. Può anche essere aggiunta una maschera CIDR,\nin assenza della quale verrà usata la suddivisione in classi.\n-g\tnon tiene conto del Getaway.\n-b\tfornisce anche la codifica in binario.")
+			return
+
+		} else {
+			ind = arg
+			break
+		}
+	}
+
+	addres := strings.Split(ind, "/")
 	IP, err = getIP(addres[0])
 	if err != nil {
 		fmt.Println(err)
@@ -26,20 +48,61 @@ func main() {
 
 	if len(addres) > 1 {
 		m, err := strconv.Atoi(addres[1])
-		if err != nil {
-			fmt.Println(err)
+		if err != nil || m < 0 || m > 30 {
+			fmt.Println("maschera non valida")
 			return
 		}
 		mask = getSbnetMask(uint(m))
+	} else {
+		if uint8(IP>>28) == 15 { // class E
+			fmt.Println("IP di classe E\nRiservato per usi futuri")
+			return
+
+		} else if uint8(IP>>28) == 14 { // class D
+			fmt.Println("IP di classe D\nIndirizzo Multicast")
+			return
+
+		} else if uint8(IP>>29) == 6 { // class C
+			fmt.Println("IP di classe C")
+			mask = getSbnetMask(uint(24))
+
+		} else if uint8(IP>>30) == 2 { // class B
+			fmt.Println("IP di classe B")
+			mask = getSbnetMask(uint(16))
+
+		} else if uint8(IP>>31) == 0 { // class A
+			mask = getSbnetMask(uint(8))
+			fmt.Println("IP di classe A")
+		}
 	}
 
-	fmt.Println("Net Mask:\t", addToString(mask), "-", addToStringD(mask))
-	fmt.Println("IP Addres:\t", addToString(IP), "-", addToStringD(IP))
-	fmt.Println("BaseAddres:\t", addToString(IP&mask), "-", addToStringD(IP&mask))
-	fmt.Println("BroadCast:\t", addToString(IP|^mask), "-", addToStringD(IP|^mask))
-	fmt.Println()
-	fmt.Println("Primo IP:\t", addToString((IP&mask)+1), "-", addToStringD((IP&mask)+1))
-	fmt.Println("Ultimo IP:\t", addToString((IP|^mask)-1), "-", addToStringD((IP|^mask)-1))
+	if mask == 0xFFFFFFFC {
+		fmt.Println("Connessione punto punto")
+		print("BaseAddres:\t", (IP & mask))
+		print("BroadCast:\t", (IP | ^mask))
+		print("Primo IP:\t", ((IP & mask) + 1))
+		print("Secondo IP:\t", ((IP | ^mask) - 1))
+		print("Net Mask:\t", (mask))
+		print("Wildcard:\t", (^mask))
+		return
+	}
+
+	if noGetaway {
+		print("BaseAddres:\t", (IP & mask))
+		print("BroadCast:\t", (IP | ^mask))
+		print("Primo IP:\t", ((IP & mask) + 1))
+		print("Ultimo IP:\t", ((IP | ^mask) - 1))
+		print("Net Mask:\t", (mask))
+		print("Wildcard:\t", (^mask))
+	} else {
+		print("BaseAddres:\t", (IP & mask))
+		print("BroadCast:\t", (IP | ^mask))
+		print("Getaway:\t", ((IP | ^mask) - 1))
+		print("Primo IP:\t", ((IP & mask) + 1))
+		print("Ultimo IP:\t", ((IP | ^mask) - 2))
+		print("Net Mask:\t", (mask))
+		print("Wildcard:\t", (^mask))
+	}
 
 }
 
@@ -75,7 +138,15 @@ func getSbnetMask(n uint) uint32 {
 	return mask
 }
 
-func addToString(addr uint32) string {
+func print(lable string, num uint32) {
+	if binario {
+		fmt.Println(lable, addToStringB(num), "-", addToStringD(num))
+	} else {
+		fmt.Println(lable, addToStringD(num))
+	}
+}
+
+func addToStringB(addr uint32) string {
 
 	var add [4]uint8
 	add[0] = uint8(addr)
