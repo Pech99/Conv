@@ -8,102 +8,85 @@ import (
 	"strings"
 )
 
-var noGetaway, binario bool = false, false
+//complile: go build -ldflags "-H windowsgui"
 
 func main() {
-	var IP, mask uint32 = 0, 32
-	var err error
-	var ind string
+	var out string
 
-	if len(os.Args) <= 1 {
-		fmt.Println("nessun argomento da linea di comando")
+	c, err := os.ReadFile(os.Args[1])
+	if err != nil {
 		return
 	}
 
-	for _, arg := range os.Args[1:] {
-		if arg == "-g" {
-			noGetaway = true
-			continue
+	cnt := strings.Split(string(c), "\n")
 
-		} else if arg == "-b" {
-			binario = true
-			continue
-
-		} else if arg == "--help" {
-			println("Fornisce alcune inforazioni riguardo l'indirizzo in notazione puntata (x.y.z.q/m)\nformito da linea di comando. Può anche essere aggiunta una maschera CIDR,\nin assenza della quale verrà usata la suddivisione in classi.\n-g\tnon tiene conto del Getaway.\n-b\tfornisce anche la codifica in binario.")
-			return
-
+	for _, e := range cnt {
+		e = strings.TrimSpace(e)
+		inf, err := getInfo(e)
+		if err != nil {
+			out += e + " - " + err.Error() + "\n\n"
 		} else {
-			ind = arg
-			break
+			out += e + inf + "\n\n"
 		}
 	}
+
+	f, err := os.Create("a.txt")
+	if err != nil {
+		return
+	}
+	f.Write([]byte(out))
+
+}
+
+func getInfo(ind string) (string, error) {
+	var IP, mask uint32 = 0, 32
+	var cidrM int
+	var err error
 
 	addres := strings.Split(ind, "/")
 	IP, err = getIP(addres[0])
 	if err != nil {
-		fmt.Println(err)
-		return
+		return "", err
 	}
 
 	if len(addres) > 1 {
-		m, err := strconv.Atoi(addres[1])
-		if err != nil || m < 0 || m > 30 {
-			fmt.Println("maschera non valida")
-			return
+		cidrM, err = strconv.Atoi(addres[1])
+
+		if cidrM < 0 && cidrM > -32 {
+			cidrM = 32 + cidrM
 		}
-		mask = getSbnetMask(uint(m))
-	} else {
-		if uint8(IP>>28) == 15 { // class E
-			fmt.Println("IP di classe E\nRiservato per usi futuri")
-			return
 
-		} else if uint8(IP>>28) == 14 { // class D
-			fmt.Println("IP di classe D\nIndirizzo Multicast")
-			return
-
-		} else if uint8(IP>>29) == 6 { // class C
-			fmt.Println("IP di classe C")
-			mask = getSbnetMask(uint(24))
-
-		} else if uint8(IP>>30) == 2 { // class B
-			fmt.Println("IP di classe B")
-			mask = getSbnetMask(uint(16))
-
-		} else if uint8(IP>>31) == 0 { // class A
-			mask = getSbnetMask(uint(8))
-			fmt.Println("IP di classe A")
+		if err != nil || cidrM < 0 || cidrM > 30 {
+			return "", errors.New("maschera non valida")
 		}
+
+		mask = getSbnetMask(uint(cidrM))
 	}
 
+	var info string
 	if mask == 0xFFFFFFFC {
-		fmt.Println("Connessione punto punto")
-		print("BaseAddres:\t", (IP & mask))
-		print("BroadCast:\t", (IP | ^mask))
-		print("Primo IP:\t", ((IP & mask) + 1))
-		print("Secondo IP:\t", ((IP | ^mask) - 1))
-		print("Net Mask:\t", (mask))
-		print("Wildcard:\t", (^mask))
-		return
-	}
-
-	if noGetaway {
-		print("BaseAddres:\t", (IP & mask))
-		print("BroadCast:\t", (IP | ^mask))
-		print("Primo IP:\t", ((IP & mask) + 1))
-		print("Ultimo IP:\t", ((IP | ^mask) - 1))
-		print("Net Mask:\t", (mask))
-		print("Wildcard:\t", (^mask))
+		info = fmt.Sprint(
+			"\nBaseAddres:\t", addToStringD(IP&mask), "/", cidrM,
+			"\nBroadCast:\t", addToStringD(IP|^mask),
+			"\nGetaway:\t-",
+			"\nPrimo IP:\t", addToStringD((IP&mask)+1),
+			"\nSecondo IP:\t", addToStringD((IP|^mask)-1),
+			"\nNet Mask:\t", addToStringD(mask),
+			"\nWildcard:\t", addToStringD(^mask),
+		)
 	} else {
-		print("BaseAddres:\t", (IP & mask))
-		print("BroadCast:\t", (IP | ^mask))
-		print("Getaway:\t", ((IP | ^mask) - 1))
-		print("Primo IP:\t", ((IP & mask) + 1))
-		print("Ultimo IP:\t", ((IP | ^mask) - 2))
-		print("Net Mask:\t", (mask))
-		print("Wildcard:\t", (^mask))
+		info = fmt.Sprint(
+			"\nBaseAddres:\t", addToStringD(IP&mask), "/", cidrM,
+			"\nBroadCast:\t", addToStringD(IP|^mask),
+			"\nGetaway:\t", addToStringD((IP|^mask)-1),
+			"\nPrimo IP:\t", addToStringD((IP&mask)+1),
+			"\nUltimo IP:\t", addToStringD((IP|^mask)-2),
+			"\nNet Mask:\t", addToStringD(mask),
+			"\nWildcard:\t", addToStringD(^mask),
+		)
 	}
 
+	return info, nil
 }
 
 func getIP(IP string) (uint32, error) {
@@ -138,25 +121,6 @@ func getSbnetMask(n uint) uint32 {
 	return mask
 }
 
-func print(lable string, num uint32) {
-	if binario {
-		fmt.Println(lable, addToStringB(num), "-", addToStringD(num))
-	} else {
-		fmt.Println(lable, addToStringD(num))
-	}
-}
-
-func addToStringB(addr uint32) string {
-
-	var add [4]uint8
-	add[0] = uint8(addr)
-	add[1] = uint8(addr >> 8)
-	add[2] = uint8(addr >> 16)
-	add[3] = uint8(addr >> 24)
-
-	return fmt.Sprintf("%08b.%08b.%08b.%08b", add[3], add[2], add[1], add[0])
-}
-
 func addToStringD(addr uint32) string {
 
 	var add [4]uint8
@@ -165,5 +129,5 @@ func addToStringD(addr uint32) string {
 	add[2] = uint8(addr >> 16)
 	add[3] = uint8(addr >> 24)
 
-	return fmt.Sprintf("%d.%d.%d.%d", add[3], add[2], add[1], add[0])
+	return fmt.Sprintf("_ %d.%d.%d.%d", add[3], add[2], add[1], add[0])
 }
